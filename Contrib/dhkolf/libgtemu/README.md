@@ -81,6 +81,7 @@ command line:
 	 -t filename.gtb  Text file to be sent with Ctrl-F3.
 	 -r filename.rom  ROM file (default name: gigatron.rom).
 	 -64              Expand RAM to 64k.
+	 -128             Expand RAM to 128k.
 
 	Special keys:
 	    Ctrl-F2       Send designated GT1 file.

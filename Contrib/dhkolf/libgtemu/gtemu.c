@@ -37,6 +37,8 @@ void gtemu_init (struct GTState *gt,
 	gt->pc = 0;
 	gt->in = 0xff;
 	gt->out = 0x80;
+	gt->hasexpander = 1;
+	gt->expandercontrol = 0x7c;
 }
 
 unsigned long gtemu_randomizemem (unsigned long seed,
@@ -94,7 +96,7 @@ static void cputick (struct GTState *gt, unsigned char undef)
 	int iswrite, isjump;
 	unsigned char lo, hi = 0;
 	unsigned char *to = NULL;
-	size_t addr;
+	size_t addr, highbank;
 
 	ir = gt->ir;
 	d = gt->d;
@@ -182,7 +184,9 @@ static void cputick (struct GTState *gt, unsigned char undef)
 			break;
 		}
 	}
-	addr = ((hi << 8) | lo) & gt->rammask;
+
+	highbank = hi & 0x80 ? (gt->expandercontrol & 0xc0) << 9 : 0;
+	addr = (highbank | ((hi & 0x7f) << 8) | lo) & gt->rammask;
 
 	switch (bus) {
 	case 0:
@@ -204,7 +208,11 @@ static void cputick (struct GTState *gt, unsigned char undef)
 	}
 
 	if (iswrite) {
-		gt->ram[addr] = databus;
+		if (gt->hasexpander && bus == 1) {
+			gt->expandercontrol = (hi << 8) | lo;
+		} else {
+			gt->ram[addr] = databus;
+		}
 	}
 
 	ac = gt->ac;

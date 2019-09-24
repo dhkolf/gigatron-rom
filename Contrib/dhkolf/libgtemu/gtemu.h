@@ -33,7 +33,9 @@ struct GTState {
 	struct GTRomEntry *rom;
 	size_t romcount;
 	unsigned char *ram;
-	unsigned int rammask;
+	size_t rammask;
+	int hasexpander;
+	unsigned short expandercontrol;
 };
 
 /*

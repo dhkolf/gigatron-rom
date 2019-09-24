@@ -318,6 +318,15 @@ static void parseargs (int argc, char *argv[], struct MainState *a)
 			}
 			a->ramexpansion = 1;
 			break;
+		case '1':
+			if (argv[i][2] != '2' || argv[i][3] != '8' ||
+				argv[i][4] != '\0') {
+
+				a->displayhelp = 1;
+				return;
+			}
+			a->ramexpansion = 2;
+			break;
 		default:
 			a->displayhelp = 1;
 			return;
@@ -344,6 +353,7 @@ static void displayhelp (const char *progname)
 		" -t filename.gtb  Text file to be sent with Ctrl-F3.\n"
 		" -r filename.rom  ROM file (default name: gigatron.rom).\n"
 		" -64              Expand RAM to 64k.\n"
+		" -128             Expand RAM to 128k.\n"
 		"\n"
 		"Special keys:\n"
 		"    Ctrl-F2       Send designated GT1 file.\n"
@@ -367,7 +377,7 @@ int main (int argc, char *argv[])
 	size_t outputpos = 0;
 
 	static struct GTRomEntry rom[0x10000];
-	static unsigned char ram[0x10000];
+	static unsigned char ram[0x20000];
 	static char sendbuffer[0x11000];
 	static char outputbuffer[128];
 
@@ -382,7 +392,9 @@ int main (int argc, char *argv[])
 	}
 
 	gtemu_init(&gt, rom, sizeof(rom), ram,
-		mstate.ramexpansion ? 0x10000 : 0x8000);
+		mstate.ramexpansion == 2 ? 0x20000 :
+		mstate.ramexpansion == 1 ? 0x10000 :
+		0x8000);
 
 	randstate = time(0);
 	randstate = gtemu_randomizemem(randstate, rom, sizeof(rom));
