@@ -10,8 +10,10 @@
 
 #include "gtemu.h"
 
-extern void gtloader_onfallingvsync(struct GTState *gt, struct GTPeriph *ph);
+extern void gtloader_onfallingvsync (struct GTState *gt, struct GTPeriph *ph);
 extern void gtloader_onrisinghsync (struct GTState *gt, struct GTPeriph *ph);
+
+extern void gtspi_onrisingsclk (struct GTState *gt, struct GTPeriph *ph);
 
 const int hbackporch = 48 / 4;
 const int screenwidth = 640 / 4;
@@ -39,6 +41,7 @@ void gtemu_init (struct GTState *gt,
 	gt->out = 0x80;
 	gt->hasexpander = 1;
 	gt->expandercontrol = 0x7c;
+	gt->miso = 0x00;
 }
 
 unsigned long gtemu_randomizemem (unsigned long seed,
@@ -77,6 +80,10 @@ void gtemu_initperiph (struct GTPeriph *ph, int audiofreq,
 	ph->serialout.buffersize = 0;
 	ph->serialout.bufferpos = NULL;
 	ph->serialout.sentfull = 0;
+	ph->sdcard.state = 0;
+	ph->sdcard.idle = 1;
+	ph->sdcard.pendingread = 0;
+	ph->sdcard.appcmd = 0;
 }
 
 unsigned long long gtemu_getclock (struct GTPeriph *ph)
@@ -125,6 +132,9 @@ static void cputick (struct GTState *gt, unsigned char undef)
 		gt->pc = pc + 1;
 		return;
 	case 0x01: /* ld [D] */
+		if (gt->expandercontrol & 0x01) {
+			break;
+		}
 		/* this assumes that the RAM has at least 256 bytes */
 		gt->ac = gt->ram[d];
 		gt->pc = pc + 1;
@@ -195,6 +205,8 @@ static void cputick (struct GTState *gt, unsigned char undef)
 	case 1:
 		if (iswrite) {
 			databus = undef;
+		} else if (gt->expandercontrol & 0x01) {
+			databus = gt->miso;
 		} else {
 			databus = gt->ram[addr];
 		}
@@ -331,8 +343,10 @@ void gtserialout_setbuffer (struct GTPeriph *ph, char *buffer,
 int gtemu_processtick (struct GTState *gt, struct GTPeriph *ph)
 {
 	unsigned char prevout, risingout, fallingout;
+	unsigned short prevctrl;
 
 	prevout = gt->out;
+	prevctrl = gt->expandercontrol;
 
 	cputick(gt, ph->board.undef);
 
@@ -373,6 +387,9 @@ int gtemu_processtick (struct GTState *gt, struct GTPeriph *ph)
 	if (fallingout & 0x80) {
 		gtloader_onfallingvsync(gt, ph);
 		gtserialout_onfallingvsync(ph);
+	}
+	if ((~prevctrl & gt->expandercontrol) & 0x01) {
+		gtspi_onrisingsclk(gt, ph);
 	}
 	return risingout & 0xc0;
 }

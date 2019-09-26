@@ -1,6 +1,6 @@
 CC= gcc
 CFLAGS= -Wall -Os
-GTLIB_O= gtsdl.o gtemu.o gtloader.o
+GTLIB_O= gtsdl.o gtemu.o gtloader.o gtspi.o
 LUADIR= ../lua-5.3.4/src
 
 all: gtrun gtemu.so
@@ -18,6 +18,9 @@ gtemu.o: gtemu.c gtemu.h
 	$(CC) $(CFLAGS) -o $@ -c $<
 
 gtloader.o: gtloader.c gtemu.h
+	$(CC) $(CFLAGS) -o $@ -c $<
+
+gtspi.o: gtspi.c gtemu.h
 	$(CC) $(CFLAGS) -o $@ -c $<
 
 gtmain.o: gtmain.c gtemu.h gtsdl.h

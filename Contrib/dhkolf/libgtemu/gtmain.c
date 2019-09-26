@@ -19,6 +19,8 @@ struct MainState {
 	const char *romfile;
 	const char *sendfile;
 	const char *textfile;
+	const char *cardfile;
+	FILE *cardf;
 	int displayhelp;
 	int ramexpansion;
 	char *sendbuffer;
@@ -281,6 +283,7 @@ static void parseargs (int argc, char *argv[], struct MainState *a)
 	a->romfile = NULL;
 	a->sendfile = NULL;
 	a->textfile = NULL;
+	a->cardfile = NULL;
 	a->displayhelp = 0;
 	a->ramexpansion = 0;
 	for (i = 1; i < argc; i++) {
@@ -309,6 +312,10 @@ static void parseargs (int argc, char *argv[], struct MainState *a)
 			break;
 		case 'r':
 			a->romfile = parsefileoption(argc, argv,
+				&i, &a->displayhelp);
+			break;
+		case 'c':
+			a->cardfile = parsefileoption(argc, argv,
 				&i, &a->displayhelp);
 			break;
 		case '6':
@@ -352,6 +359,7 @@ static void displayhelp (const char *progname)
 		" -l filename.gt1  GT1 program to be loaded at the start.\n"
 		" -t filename.gtb  Text file to be sent with Ctrl-F3.\n"
 		" -r filename.rom  ROM file (default name: gigatron.rom).\n"
+		" -c filename.img  SD card image (including partition table).\n"
 		" -64              Expand RAM to 64k.\n"
 		" -128             Expand RAM to 128k.\n"
 		"\n"
@@ -380,9 +388,11 @@ int main (int argc, char *argv[])
 	static unsigned char ram[0x20000];
 	static char sendbuffer[0x11000];
 	static char outputbuffer[128];
+	static unsigned char sdcardbuffer[512];
 
 	mstate.sendbuffer = sendbuffer;
 	mstate.sendbuffersize = sizeof(sendbuffer);
+	mstate.cardf = NULL;
 
 	parseargs(argc, argv, &mstate);
 
@@ -416,8 +426,17 @@ int main (int argc, char *argv[])
 
 	if (gtsdl_openwindow(&s, "Gigatron")) {
 		gtemu_initperiph(&ph, gtsdl_getaudiofreq(&s), randstate);
+
 		gtserialout_setbuffer(&ph, outputbuffer,
 			sizeof(outputbuffer), &outputpos);
+
+		if (mstate.cardfile != NULL) {
+			mstate.cardf = fopen(mstate.cardfile, "rb");
+			if (mstate.cardf == NULL) {
+				SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR,
+					mstate.cardfile, strerror(errno), NULL);
+			}
+		}
 
 		if (mstate.sendfile != NULL) {
 			sendgt1file(&mstate, &gt, &ph, 1);
@@ -425,13 +444,25 @@ int main (int argc, char *argv[])
 
 		for (;;) {
 			SDL_Event ev;
+			size_t addr;
 			int hasevent = gtsdl_runuiframe(&s, &gt, &ph, &ev);
+
 			if (outputpos > 0) {
 				fwrite(outputbuffer, sizeof(outputbuffer[0]),
 					outputpos, stdout);
 				fflush(stdout);
 				outputpos = 0;
 			}
+
+			if (gtspi_pollread(&ph, &addr)) {
+				if (mstate.cardf != NULL) {
+					fseek(mstate.cardf, addr, SEEK_SET);
+					fread(sdcardbuffer, 512, 1, mstate.cardf);
+				}
+
+				gtspi_providereadbuffer(&ph, sdcardbuffer);
+			}
+
 			if (hasevent == 0) {
 				continue;
 			}
@@ -459,6 +490,11 @@ int main (int argc, char *argv[])
 		fprintf(stderr, "SDL error: %s\n", sdlerror);
 		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR,
 			"SDL error", sdlerror, NULL);
+	}
+
+	if (mstate.cardf != NULL) {
+		fclose(mstate.cardf);
+		mstate.cardf = NULL;
 	}
 
 	gtsdl_close(&s);

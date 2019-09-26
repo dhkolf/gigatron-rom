@@ -36,6 +36,7 @@ struct GTState {
 	size_t rammask;
 	int hasexpander;
 	unsigned short expandercontrol;
+	unsigned char miso;
 };
 
 /*
@@ -74,6 +75,18 @@ struct GTPeriph {
 		char *buffer;
 		size_t *bufferpos, buffersize;
 	} serialout;
+	struct {
+		int state;
+		int idle, pendingread;
+		int appcmd, invalidcmd;
+		int bitcount;
+		unsigned char cmd, checksum;
+		unsigned long arg;
+		size_t addr;
+		const unsigned char *readdata;
+		size_t remainingdata;
+		unsigned short crc16;
+	} sdcard;
 };
 
 /* functions defined in gtemu.u */
@@ -118,6 +131,15 @@ extern int gtloader_sendtext (struct GTPeriph *ph,
 
 extern int gtloader_sendkey (struct GTState *gt, struct GTPeriph *ph,
 	char key);
+
+/* functions defined in gtspi.c */
+
+extern int gtspi_pollread (struct GTPeriph *ph, size_t *addr);
+
+extern void gtspi_providereadbuffer (struct GTPeriph *ph,
+	const unsigned char *buffer);
+
+extern int gtspi_readbufferinuse (struct GTPeriph *ph);
 
 #endif /* GTEMU_H */
 
