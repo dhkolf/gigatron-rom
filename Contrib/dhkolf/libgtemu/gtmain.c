@@ -21,11 +21,18 @@ struct MainState {
 	const char *textfile;
 	const char *cardfile;
 	FILE *cardf;
+	size_t fileoffset;
 	int displayhelp;
 	int ramexpansion;
 	char *sendbuffer;
 	size_t sendbuffersize;
 };
+
+static void showfileerror (const char *fname)
+{
+	SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR,
+		fname, strerror(errno), NULL);
+}
 
 static int loadfile (const char *fname, void *buffer, size_t elementsize,
 	size_t elementcount, size_t *readcount)
@@ -33,8 +40,7 @@ static int loadfile (const char *fname, void *buffer, size_t elementsize,
 	FILE *f = fopen(fname, "rb");
 
 	if (f == NULL) {
-		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR,
-			fname, strerror(errno), NULL);
+		showfileerror(fname);
 		return 0;
 	}
 
@@ -50,8 +56,7 @@ static int loadfile (const char *fname, void *buffer, size_t elementsize,
 			return 0;
 		}
 	} else if (ferror(f)) {
-		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR,
-			fname, strerror(errno), NULL);
+		showfileerror(fname);
 		fclose(f);
 		return 0;
 	}
@@ -257,6 +262,36 @@ static void ondroppedfile (struct MainState *mstate, struct GTState *gt,
 
 }
 
+static void opencardimage (struct MainState *mstate,
+	unsigned char *sdcardbuffer)
+{
+	FILE *f;
+	f = fopen(mstate->cardfile, "rb");
+	if (f == NULL) {
+		showfileerror(mstate->cardfile);
+		return;
+	}
+	fread(sdcardbuffer, 512, 1, f);
+	if (ferror(f)) {
+		showfileerror(mstate->cardfile);
+		fclose(f);
+		return;
+	}
+	mstate->cardf = f;
+	/* Check whether the file already starts with a FAT32 volume ID,
+	   if so, a virtual MBR is needed. Otherwise, a valid MBR is
+	   expected to be included. If the first sector is neither, it
+	   is up to the application to recognize an invalid "SD card". */
+	if ((sdcardbuffer[0] == 0xEB || sdcardbuffer[0] == 0xE9 ||
+		sdcardbuffer[0] == 0x69) &&
+		sdcardbuffer[0x0B] == 0 &&
+		sdcardbuffer[0x0C] == 2 &&
+		sdcardbuffer[0x10] == 2) {
+
+		mstate->fileoffset = 512;
+	}
+}
+
 static const char *parsefileoption (int argc, char *argv[],
 	int *i, int *displayhelp)
 {
@@ -359,7 +394,7 @@ static void displayhelp (const char *progname)
 		" -l filename.gt1  GT1 program to be loaded at the start.\n"
 		" -t filename.gtb  Text file to be sent with Ctrl-F3.\n"
 		" -r filename.rom  ROM file (default name: gigatron.rom).\n"
-		" -c filename.img  SD card image (including partition table).\n"
+		" -c filename.img  SD card image.\n"
 		" -64              Expand RAM to 64k.\n"
 		" -128             Expand RAM to 128k.\n"
 		"\n"
@@ -393,6 +428,7 @@ int main (int argc, char *argv[])
 	mstate.sendbuffer = sendbuffer;
 	mstate.sendbuffersize = sizeof(sendbuffer);
 	mstate.cardf = NULL;
+	mstate.fileoffset = 0;
 
 	parseargs(argc, argv, &mstate);
 
@@ -431,11 +467,7 @@ int main (int argc, char *argv[])
 			sizeof(outputbuffer), &outputpos);
 
 		if (mstate.cardfile != NULL) {
-			mstate.cardf = fopen(mstate.cardfile, "rb");
-			if (mstate.cardf == NULL) {
-				SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR,
-					mstate.cardfile, strerror(errno), NULL);
-			}
+			opencardimage(&mstate, sdcardbuffer);
 		}
 
 		if (mstate.sendfile != NULL) {
@@ -456,8 +488,16 @@ int main (int argc, char *argv[])
 
 			if (gtspi_pollread(&ph, &addr)) {
 				if (mstate.cardf != NULL) {
-					fseek(mstate.cardf, addr, SEEK_SET);
-					fread(sdcardbuffer, 512, 1, mstate.cardf);
+					if (addr < mstate.fileoffset) {
+						memset(sdcardbuffer, 0, 512);
+						sdcardbuffer[0x1c2] = 0xB;
+						sdcardbuffer[0x1c6] = 1;
+						sdcardbuffer[0x1fe] = 0x55;
+						sdcardbuffer[0x1ff] = 0xAA;
+					} else {
+						fseek(mstate.cardf, addr - mstate.fileoffset, SEEK_SET);
+						fread(sdcardbuffer, 512, 1, mstate.cardf);
+					}
 				}
 
 				gtspi_providereadbuffer(&ph, sdcardbuffer);
